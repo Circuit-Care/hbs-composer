@@ -179,6 +179,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(handlebars.clone()))
             .wrap(Logger::default())
             .wrap(middleware::NormalizePath::trim())
+            .service(actix_files::Files::new("/static", ".").prefer_utf8(true))
             .route("/{page}", web::get().to(render_page))
             .service(web::Redirect::new("/", "/index").permanent())
     })
