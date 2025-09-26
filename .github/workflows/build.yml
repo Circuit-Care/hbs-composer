@@ -1,0 +1,121 @@
+name: Build and Release
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+        branches: [main]
+
+env:
+    CARGO_TERM_COLOR: always
+
+jobs:
+    build:
+        name: Build for ${{ matrix.os }}
+        runs-on: ${{ matrix.os }}
+        strategy:
+            matrix:
+                include:
+                    - os: ubuntu-latest
+                      target: x86_64-unknown-linux-gnu
+                      binary_name: hbs-composer
+                      asset_name: hbs-composer-linux-x86_64
+                    - os: windows-latest
+                      target: x86_64-pc-windows-msvc
+                      binary_name: hbs-composer.exe
+                      asset_name: hbs-composer-windows-x86_64.exe
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Setup Rust
+              uses: actions-rs/toolchain@v1
+              with:
+                  toolchain: stable
+                  target: ${{ matrix.target }}
+                  override: true
+                  profile: minimal
+
+            - name: Cache cargo registry
+              uses: actions/cache@v3
+              with:
+                  path: |
+                      ~/.cargo/registry
+                      ~/.cargo/git
+                      target
+                  key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+                  restore-keys: |
+                      ${{ runner.os }}-cargo-
+
+            - name: Build binary
+              run: cargo build --release --target ${{ matrix.target }}
+
+            - name: Run tests
+              run: cargo test --release --target ${{ matrix.target }}
+
+            - name: Prepare binary (Linux)
+              if: matrix.os == 'ubuntu-latest'
+              run: |
+                  cp target/${{ matrix.target }}/release/${{ matrix.binary_name }} ${{ matrix.asset_name }}
+                  chmod +x ${{ matrix.asset_name }}
+
+            - name: Prepare binary (Windows)
+              if: matrix.os == 'windows-latest'
+              run: |
+                  copy target\${{ matrix.target }}\release\${{ matrix.binary_name }} ${{ matrix.asset_name }}
+
+            - name: Upload artifacts
+              uses: actions/upload-artifact@v3
+              with:
+                  name: ${{ matrix.asset_name }}
+                  path: ${{ matrix.asset_name }}
+
+    release:
+        name: Create Release
+        needs: build
+        runs-on: ubuntu-latest
+        if: github.ref == 'refs/heads/main'
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Download all artifacts
+              uses: actions/download-artifact@v3
+
+            - name: Generate release tag
+              id: tag
+              run: |
+                  echo "release_tag=v$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+
+            - name: Create Release
+              id: create_release
+              uses: actions/create-release@v1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  tag_name: ${{ steps.tag.outputs.release_tag }}
+                  release_name: Release ${{ steps.tag.outputs.release_tag }}
+                  draft: false
+                  prerelease: false
+
+            - name: Upload Linux Binary
+              uses: actions/upload-release-asset@v1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  upload_url: ${{ steps.create_release.outputs.upload_url }}
+                  asset_path: ./hbs-composer-linux-x86_64/hbs-composer-linux-x86_64
+                  asset_name: hbs-composer-linux-x86_64
+                  asset_content_type: application/octet-stream
+
+            - name: Upload Windows Binary
+              uses: actions/upload-release-asset@v1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  upload_url: ${{ steps.create_release.outputs.upload_url }}
+                  asset_path: ./hbs-composer-windows-x86_64.exe/hbs-composer-windows-x86_64.exe
+                  asset_name: hbs-composer-windows-x86_64.exe
+                  asset_content_type: application/octet-stream
