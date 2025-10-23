@@ -178,10 +178,7 @@ async fn bundle_templates() -> std::io::Result<()> {
         handlebars.register_templates_directory("templates", DirectorySourceOptions::default())
     {
         eprintln!("Failed to register templates: {}", e);
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            e.to_string(),
-        ));
+        return Err(std::io::Error::other(e.to_string()));
     }
 
     // Load all data files
@@ -189,10 +186,7 @@ async fn bundle_templates() -> std::io::Result<()> {
         Ok(data) => data,
         Err(e) => {
             eprintln!("Failed to load data files: {}", e);
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e.to_string(),
-            ));
+            return Err(std::io::Error::other(e.to_string()));
         }
     };
 
@@ -219,23 +213,23 @@ async fn bundle_templates() -> std::io::Result<()> {
         let path = entry.path();
         let metadata = entry.metadata().await?;
 
-        if metadata.is_file() {
-            if let Some(file_stem) = path.file_stem() {
-                let page_name = file_stem.to_string_lossy().to_string();
-                let template_name = format!("pages/{}", page_name);
+        if metadata.is_file()
+            && let Some(file_stem) = path.file_stem()
+        {
+            let page_name = file_stem.to_string_lossy().to_string();
+            let template_name = format!("pages/{}", page_name);
 
-                println!("Rendering template: {}", template_name);
+            println!("Rendering template: {}", template_name);
 
-                match handlebars.render(&template_name, &context) {
-                    Ok(rendered) => {
-                        let output_path = dist_dir.join(format!("{}.html", page_name));
-                        fs::write(&output_path, rendered).await?;
-                        println!("✓ Wrote: {}", output_path.display());
-                        rendered_count += 1;
-                    }
-                    Err(e) => {
-                        eprintln!("✗ Failed to render {}: {}", template_name, e);
-                    }
+            match handlebars.render(&template_name, &context) {
+                Ok(rendered) => {
+                    let output_path = dist_dir.join(format!("{}.html", page_name));
+                    fs::write(&output_path, rendered).await?;
+                    println!("✓ Wrote: {}", output_path.display());
+                    rendered_count += 1;
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to render {}: {}", template_name, e);
                 }
             }
         }
