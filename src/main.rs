@@ -160,8 +160,103 @@ async fn render_page(
     }
 }
 
+async fn bundle_templates() -> std::io::Result<()> {
+    println!("Starting bundle process...");
+
+    // Create dist directory if it doesn't exist
+    let dist_dir = Path::new("dist");
+    if !dist_dir.exists() {
+        fs::create_dir_all(dist_dir).await?;
+        println!("Created dist directory");
+    }
+
+    // Create Handlebars instance
+    let mut handlebars = Handlebars::new();
+
+    // Register all templates
+    if let Err(e) =
+        handlebars.register_templates_directory("templates", DirectorySourceOptions::default())
+    {
+        eprintln!("Failed to register templates: {}", e);
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e.to_string(),
+        ));
+    }
+
+    // Load all data files
+    let data = match load_data_files().await {
+        Ok(data) => data,
+        Err(e) => {
+            eprintln!("Failed to load data files: {}", e);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string(),
+            ));
+        }
+    };
+
+    // Convert HashMap to serde_json::Map for template context
+    let mut context = Map::new();
+    for (key, value) in data {
+        context.insert(key, value);
+    }
+
+    // Read templates/pages directory
+    let pages_dir = Path::new("templates/pages");
+    if !pages_dir.exists() {
+        eprintln!("templates/pages directory does not exist");
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "templates/pages directory not found",
+        ));
+    }
+
+    let mut entries = fs::read_dir(pages_dir).await?;
+    let mut rendered_count = 0;
+
+    while let Some(entry) = entries.next_entry().await? {
+        let path = entry.path();
+        let metadata = entry.metadata().await?;
+
+        if metadata.is_file() {
+            if let Some(file_stem) = path.file_stem() {
+                let page_name = file_stem.to_string_lossy().to_string();
+                let template_name = format!("pages/{}", page_name);
+
+                println!("Rendering template: {}", template_name);
+
+                match handlebars.render(&template_name, &context) {
+                    Ok(rendered) => {
+                        let output_path = dist_dir.join(format!("{}.html", page_name));
+                        fs::write(&output_path, rendered).await?;
+                        println!("✓ Wrote: {}", output_path.display());
+                        rendered_count += 1;
+                    }
+                    Err(e) => {
+                        eprintln!("✗ Failed to render {}: {}", template_name, e);
+                    }
+                }
+            }
+        }
+    }
+
+    println!(
+        "\nBundle complete! Rendered {} templates to dist/",
+        rendered_count
+    );
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+    // Check for --bundle parameter
+    let args: Vec<String> = std::env::args().collect();
+
+    if args.len() > 1 && args[1] == "--bundle" {
+        return bundle_templates().await;
+    }
+
     // Initialize logger
     env_logger::init();
 
