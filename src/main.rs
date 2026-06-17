@@ -1,6 +1,6 @@
 use actix_web::middleware;
 use actix_web::{App, HttpResponse, HttpServer, Result, middleware::Logger, web};
-use handlebars::{DirectorySourceOptions, Handlebars};
+use handlebars::{Context, DirectorySourceOptions, Handlebars, Helper, HelperResult, Output, RenderContext};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::future::Future;
@@ -106,6 +106,29 @@ async fn load_data_files() -> Result<HashMap<String, Value>, Box<dyn std::error:
     Ok(data)
 }
 
+fn register_link_helper(hb: &mut Handlebars, bundle: bool) {
+    hb.register_helper(
+        "link",
+        Box::new(
+            move |h: &Helper,
+                  _: &Handlebars,
+                  _: &Context,
+                  _: &mut RenderContext,
+                  out: &mut dyn Output|
+                  -> HelperResult {
+                let page = h.param(0).and_then(|v| v.value().as_str()).unwrap_or("");
+                let url = if bundle {
+                    format!("{}.html", page)
+                } else {
+                    format!("/{}", page)
+                };
+                out.write(&url)?;
+                Ok(())
+            },
+        ),
+    );
+}
+
 async fn render_page(
     path: web::Path<String>,
     _hb: web::Data<Handlebars<'_>>,
@@ -120,6 +143,7 @@ async fn render_page(
     // Create a fresh Handlebars instance for this request
     let mut handlebars = Handlebars::new();
     handlebars.set_dev_mode(true);
+    register_link_helper(&mut handlebars, false);
 
     // Register all templates from the templates directory
     if let Err(e) =
@@ -172,6 +196,7 @@ async fn bundle_templates() -> std::io::Result<()> {
 
     // Create Handlebars instance
     let mut handlebars = Handlebars::new();
+    register_link_helper(&mut handlebars, true);
 
     // Register all templates
     if let Err(e) =
